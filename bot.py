@@ -1,45 +1,43 @@
-import os
 import logging
 import threading
+import os  # Am adăugat os aici
 from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- ÎNLOCUIEȘTE ASTA ---
 # --- Se citesc secretele din Environment Variables ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID_STR = os.environ.get("ADMIN_ID")
 # ----------------------------------------------------
 
-# Verificăm dacă variabilele există
+# Inițializăm logger-ul
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Verificăm variabilele și convertim ADMIN_ID
 if not BOT_TOKEN:
     logger.error("Eroare: BOT_TOKEN nu este setat!")
 if not ADMIN_ID_STR:
     logger.error("Eroare: ADMIN_ID nu este setat!")
 else:
-    # Convertim ADMIN_ID din text în număr, pentru că filtrele au nevoie de număr
-    ADMIN_ID = int(ADMIN_ID_STR)
+    try:
+        ADMIN_ID = int(ADMIN_ID_STR) 
+    except ValueError:
+        logger.error(f"Eroare: ADMIN_ID '{ADMIN_ID_STR}' nu este un număr valid!")
+        ADMIN_ID = None  # Setăm ca None dacă e invalid
 
 # --- Partea pentru serverul web (Flask) ---
-# Acest server web rulează doar ca să țină serviciul Render activ
 app = Flask(__name__)
 
 @app.route('/')
 def hello():
-    # Când UptimeRobot vizitează adresa, va primi acest mesaj
     return "Botul este activ!"
 
 def run_flask():
-    # Rulează serverul web pe portul 0.0.0.0,
-    # Render va detecta automat portul.
     app.run(host='0.0.0.0', port=8080)
 # ----------------------------------------
-
-# Activează logging-ul pentru a vedea erorile
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -76,21 +74,28 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 def main():
-    # Creăm aplicația bot-ului
+    # Verificăm dacă avem tot ce ne trebuie înainte de a porni
+    if not BOT_TOKEN or not ADMIN_ID:
+        logger.error("Botul nu poate porni. Lipsesc BOT_TOKEN sau ADMIN_ID.")
+        return  # Oprim funcția main dacă lipsesc setările
+
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Adăugăm handlerele
     application.add_handler(CommandHandler("start", start))
+    
+    # 2. Handler pentru UTILIZATORI (folosind user_id)
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & (~filters.User(chat_id=ADMIN_ID)),
+        filters.TEXT & (~filters.COMMAND) & (~filters.User(user_id=ADMIN_ID)),  # <-- CORECTAT AICI
         handle_user_message
     ))
+
+    # 3. Handler pentru ADMIN (folosind user_id)
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & filters.User(chat_id=ADMIN_ID),
+        filters.TEXT & (~filters.COMMAND) & filters.User(user_id=ADMIN_ID),    # <-- CORECTAT AICI
         handle_admin_reply
     ))
 
-    # Pornim botul
     print("Botul pornește (polling)...")
     application.run_polling()
 
