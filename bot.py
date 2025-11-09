@@ -1,6 +1,6 @@
 import logging
 import threading
-import os  # Am adăugat os aici
+import os
 from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -42,7 +42,7 @@ def run_flask():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salut! Eu sunt un bot de contact. "
-        "Trimite-mi mesajul tău și îl voi transmite administratorului."
+        "Trimite-mi mesajul tău și îl voi transmite clientului."  # <-- SCHIMBAT AICI
     )
 
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -52,47 +52,53 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         from_chat_id=user_message.chat_id,
         message_id=user_message.message_id
     )
-    await update.message.reply_text("Mesajul tău a fost trimis administratorului. Vei primi răspuns în curând.")
+    await update.message.reply_text("Mesajul tău a fost trimis clientului. Vei primi răspuns în curând.") # <-- SCHIMBAT AICI
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gestionează răspunsurile venite de la 'client' (admin)."""
     admin_message = update.message
-    if admin_message.reply_to_message and admin_message.reply_to_message.forward_from:
-        original_user_id = admin_message.reply_to_message.forward_from.id
+    
+    if (
+        admin_message.reply_to_message 
+        and admin_message.reply_to_message.forward_origin
+        and admin_message.reply_to_message.forward_origin.sender_user
+    ):
+        original_user_id = admin_message.reply_to_message.forward_origin.sender_user.id
+        
         try:
             await context.bot.send_message(
                 chat_id=original_user_id,
-                text=f"Răspuns de la administrator:\n\n{admin_message.text}"
+                text=f"Răspuns de la client:\n\n{admin_message.text}" # <-- SCHIMBAT AICI
             )
             await admin_message.reply_text("✅ Răspuns trimis utilizatorului.")
         except Exception as e:
             logger.error(f"Eroare la trimiterea mesajului către {original_user_id}: {e}")
             await admin_message.reply_text(f"❌ Eroare la trimiterea mesajului: {e}")
+            
     else:
+        # Acest mesaj este pentru TINE (client), deci e corect să-i spună
+        # cum să răspundă unui "utilizator".
         await admin_message.reply_text(
             "Pentru a răspunde unui utilizator, te rog folosește funcția 'Reply' "
             "direct la mesajul forwardat de la el."
         )
 
 def main():
-    # Verificăm dacă avem tot ce ne trebuie înainte de a porni
     if not BOT_TOKEN or not ADMIN_ID:
         logger.error("Botul nu poate porni. Lipsesc BOT_TOKEN sau ADMIN_ID.")
-        return  # Oprim funcția main dacă lipsesc setările
+        return
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Adăugăm handlerele
     application.add_handler(CommandHandler("start", start))
     
-    # 2. Handler pentru UTILIZATORI (folosind user_id)
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & (~filters.User(user_id=ADMIN_ID)),  # <-- CORECTAT AICI
+        filters.TEXT & (~filters.COMMAND) & (~filters.User(user_id=ADMIN_ID)),
         handle_user_message
     ))
 
-    # 3. Handler pentru ADMIN (folosind user_id)
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & filters.User(user_id=ADMIN_ID),    # <-- CORECTAT AICI
+        filters.TEXT & (~filters.COMMAND) & filters.User(user_id=ADMIN_ID),
         handle_admin_reply
     ))
 
@@ -101,10 +107,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # Pornim serverul Flask pe un thread separat
     print("Se pornește serverul web (Flask)...")
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
     
-    # Pornim botul pe thread-ul principal
     main()
