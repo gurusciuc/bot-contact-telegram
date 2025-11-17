@@ -5,21 +5,21 @@ import re
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    ContextTypes, 
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
     CallbackQueryHandler
 )
 
 # --- LISTA TA DE CLIENȚI ---
 CLIENT_NAMES = [
-    "Piata.md", 
-    "Sport.md", 
-    "OpenNotes", 
-    "GetOut.md", 
-    "Jukebox.md", 
+    "Piata.md",
+    "Sport.md",
+    "OpenNotes",
+    "GetOut.md",
+    "Jukebox.md",
     "Preturi.md"
 ]
 # -----------------------------
@@ -51,7 +51,7 @@ else:
             ADMIN_ID_LIST.append(int(id_str.strip())) # .strip() elimină spații accidentale
         except ValueError:
             logger.error(f"Eroare: ADMIN_ID '{id_str}' nu este un număr valid!")
-    
+
     if not ADMIN_ID_LIST:
         logger.error("Eroare: Niciun ADMIN_ID valid nu a fost găsit!")
     else:
@@ -93,10 +93,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     client_name = query.data
     context.user_data['client_name'] = client_name
     await query.edit_message_text(
-        text=f"Ai selectat: **{client_name}**.\n\nAcum poți scrie mesajul tău."
+        text=f"Ai selectat: **{client_name}**.\n\nAcum poți scrie mesajul tău (text, poză sau mesaj vocal)."
     )
 
-async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gestionează mesajele text de la utilizatori."""
     client_name = context.user_data.get('client_name')
     if not client_name:
@@ -117,7 +117,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     admin_text += f"(UserID: {user_id})"
 
     sent_successfully = False
-    # --- MODIFICARE AICI: Trimitem la TOȚI adminii din listă ---
     for admin_id in ADMIN_ID_LIST:
         try:
             await context.bot.send_message(
@@ -125,50 +124,152 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 text=admin_text,
                 parse_mode='Markdown'
             )
-            sent_successfully = True # E de ajuns dacă a ajuns la unul
+            sent_successfully = True
         except Exception as e:
             logger.error(f"Eroare la trimiterea mesajului către admin {admin_id}: {e}")
 
     if not sent_successfully:
-        # Anunțăm utilizatorul doar dacă a eșuat trimiterea la TOȚI adminii
         await update.message.reply_text(
             "A apărut o eroare la trimiterea mesajului. Te rog încearcă mai târziu."
         )
+    else:
+        # Confirmăm utilizatorului (optional, dar util)
+        await update.message.reply_text("✅ Mesajul tău text a fost trimis.")
+
+async def handle_user_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gestionează mesajele FOTO de la utilizatori."""
+    client_name = context.user_data.get('client_name')
+    if not client_name:
+        await update.message.reply_text(
+            "Te rog selectează mai întâi un client folosind comanda /start."
+        )
+        return
+
+    user = update.message.from_user
+    user_id = user.id
+    user_name = user.full_name
+    
+    photo_file_id = update.message.photo[-1].file_id # Cea mai mare rezoluție
+    original_caption = update.message.caption or ""
+
+    # Creăm noul caption pentru admin
+    admin_caption = f"Poză NOUĂ de la: {user_name}\n"
+    admin_caption += f"Pentru Client: **{client_name}**\n\n"
+    if original_caption:
+        admin_caption += f"Text original: {original_caption}\n\n"
+    admin_caption += f"---\n"
+    admin_caption += f"(UserID: {user_id})"
+
+    sent_successfully = False
+    for admin_id in ADMIN_ID_LIST:
+        try:
+            await context.bot.send_photo(
+                chat_id=admin_id,
+                photo=photo_file_id,
+                caption=admin_caption,
+                parse_mode='Markdown'
+            )
+            sent_successfully = True
+        except Exception as e:
+            logger.error(f"Eroare la trimiterea pozei către admin {admin_id}: {e}")
+
+    if not sent_successfully:
+        await update.message.reply_text(
+            "A apărut o eroare la trimiterea fotografiei. Te rog încearcă mai târziu."
+        )
+    else:
+        await update.message.reply_text("✅ Fotografia ta a fost trimisă.")
+
+async def handle_user_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gestionează mesajele VOCALE de la utilizatori."""
+    client_name = context.user_data.get('client_name')
+    if not client_name:
+        await update.message.reply_text(
+            "Te rog selectează mai întâi un client folosind comanda /start."
+        )
+        return
+
+    user = update.message.from_user
+    user_id = user.id
+    user_name = user.full_name
+    
+    voice_file_id = update.message.voice.file_id
+
+    # Creăm caption-ul pentru admin
+    admin_caption = f"Mesaj VOCAL NOU de la: {user_name}\n"
+    admin_caption += f"Pentru Client: **{client_name}**\n\n"
+    admin_caption += f"---\n"
+    admin_caption += f"(UserID: {user_id})"
+
+    sent_successfully = False
+    for admin_id in ADMIN_ID_LIST:
+        try:
+            await context.bot.send_voice(
+                chat_id=admin_id,
+                voice=voice_file_id,
+                caption=admin_caption,
+                parse_mode='Markdown'
+            )
+            sent_successfully = True
+        except Exception as e:
+            logger.error(f"Eroare la trimiterea mesajului vocal către admin {admin_id}: {e}")
+
+    if not sent_successfully:
+        await update.message.reply_text(
+            "A apărut o eroare la trimiterea mesajului vocal. Te rog încearcă mai târziu."
+        )
+    else:
+        await update.message.reply_text("✅ Mesajul tău vocal a fost trimis.")
 
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gestionează răspunsurile venite de la ORICARE admin."""
+    """Gestionează răspunsurile (text, poză, voce) venite de la ORICARE admin."""
     admin_message = update.message
     
-    if admin_message.reply_to_message and admin_message.reply_to_message.text:
-        replied_text = admin_message.reply_to_message.text
-        match = re.search(r"\(UserID: (\d+)\)", replied_text)
+    # Verificăm dacă adminul a dat reply la ceva
+    if admin_message.reply_to_message:
+        replied_message = admin_message.reply_to_message
         
-        if match:
-            original_user_id = int(match.group(1))
-            admin_response_text = admin_message.text
+        # Încercăm să găsim textul care conține UserID
+        # Acesta poate fi în .text (pt mesaje text) sau .caption (pt media)
+        text_to_search = replied_message.text or replied_message.caption
+        
+        if text_to_search:
+            match = re.search(r"\(UserID: (\d+)\)", text_to_search)
             
-            try:
-                await context.bot.send_message(
-                    chat_id=original_user_id,
-                    text=admin_response_text
+            if match:
+                original_user_id = int(match.group(1))
+                
+                try:
+                    # Folosim copy_message pentru a trimite ORICE trimite adminul
+                    # (text, poză, sticker, voce, etc.)
+                    await admin_message.copy_message(
+                        chat_id=original_user_id
+                    )
+                    await admin_message.reply_text("✅ Răspuns trimis utilizatorului.")
+                
+                except Exception as e:
+                    logger.error(f"Eroare la trimiterea mesajului către {original_user_id}: {e}")
+                    await admin_message.reply_text(f"❌ Eroare la trimiterea mesajului: {e}")
+            else:
+                # Adminul a dat reply, dar nu la un mesaj cu UserID
+                await admin_message.reply_text(
+                    "Nu am găsit un UserID în textul/caption-ul mesajului original. "
+                    "Te rog folosește 'Reply' doar la mesajele primite de la utilizatori."
                 )
-                await admin_message.reply_text("✅ Răspuns trimis utilizatorului.")
-            except Exception as e:
-                logger.error(f"Eroare la trimiterea mesajului către {original_user_id}: {e}")
-                await admin_message.reply_text(f"❌ Eroare la trimiterea mesajului: {e}")
         else:
+            # Adminul a dat reply la un mesaj FĂRĂ text sau caption (ex: un sticker vechi)
             await admin_message.reply_text(
-                "Nu am găsit un UserID. Folosește 'Reply' doar la mesajele primite de la utilizatori."
+                "Acest mesaj la care ai dat reply nu conține datele utilizatorului."
             )
     else:
+        # Adminul a scris un mesaj normal, nu un reply
         await admin_message.reply_text(
             "Pentru a răspunde unui utilizator, te rog folosește funcția 'Reply' "
-            "direct la mesajul primit de la el."
+            "direct la mesajul (text, poză, sau voce) primit de la el."
         )
 
 def main():
-    # Verificăm dacă lista de admini nu e goală
     if not BOT_TOKEN or not ADMIN_ID_LIST:
         logger.error("Botul nu poate porni. Lipsesc BOT_TOKEN sau o listă validă de ADMIN_ID.")
         return
@@ -178,15 +279,28 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_click))
     
-    # --- MODIFICARE AICI: Folosim lista de admini ---
+    # --- FILTRE PENTRU UTILIZATORI (cei care NU sunt admini) ---
+    user_filter = ~filters.User(user_id=ADMIN_ID_LIST) & ~filters.COMMAND
+    
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & (~filters.User(user_id=ADMIN_ID_LIST)),
-        handle_user_message
+        filters.TEXT & user_filter,
+        handle_user_text
+    ))
+    application.add_handler(MessageHandler(
+        filters.PHOTO & user_filter,
+        handle_user_photo
+    ))
+    application.add_handler(MessageHandler(
+        filters.VOICE & user_filter,
+        handle_user_voice
     ))
 
-    # --- MODIFICARE AICI: Folosim lista de admini ---
+    # --- FILTRU PENTRU ADMINI (oricare din listă) ---
+    admin_filter = filters.User(user_id=ADMIN_ID_LIST) & ~filters.COMMAND
+    
+    # Adminul poate răspunde cu orice tip de mesaj
     application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & filters.User(user_id=ADMIN_ID_LIST),
+        (filters.TEXT | filters.PHOTO | filters.VOICE | filters.STICKER) & admin_filter,
         handle_admin_reply
     ))
 
